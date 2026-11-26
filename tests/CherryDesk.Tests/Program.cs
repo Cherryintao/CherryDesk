@@ -1,5 +1,6 @@
 using CherryDesk.Audio;
 using CherryDesk.Performance;
+using CherryDesk.Battery;
 
 // Dependency-free regression tests. A fake endpoint backend never changes Windows audio.
 var tests = new (string Name, Action Run)[]
@@ -197,6 +198,149 @@ var tests = new (string Name, Action Run)[]
         }
         finally { File.Delete(path); Directory.Delete(folder); }
     }),
+    ("Battery values preserve unknown data and controller level granularity", () =>
+    {
+        Assert(!new DeviceBattery("a", "A", "", null).HasReading);
+        Assert(!new DeviceBattery("a", "A", "", 101).HasReading);
+        Assert(new DeviceBattery("a", "A", "", 0).HasReading);
+        var xbox = new DeviceBattery("x", "Xbox", "", null, BatteryLevel.Medium);
+        Assert(xbox.HasReading && xbox.Percent is null && xbox.ValueText == "电量中等" && !xbox.IsLow(100));
+        Assert((xbox with { Level = BatteryLevel.Low }).IsLow(1));
+        Assert(new DeviceBattery("a", "A", "", 20).IsLow(20));
+        Assert(!new DeviceBattery("a", "A", "", 21).IsLow(20));
+    }),
+    ("Bluetooth matching requires a connected address and joins the battery child by container", () =>
+    {
+        WindowsBatteryReader.BluetoothNode[] nodes =
+        [new("BTHENUM\\DEV_AABBCCDDEEFF", "one", null), new("BTHENUM\\HFP-child", "one", 70),
+         new("BTHENUM\\DEV_112233445566", "two", 5), new("BTHENUM\\random", null, 1)];
+        var devices = WindowsBatteryReader.MatchBluetooth(nodes, new Dictionary<string, string> { ["aabbccddeeff"] = "Headphones" });
+        Assert(devices.Count == 1 && devices[0].Name == "Headphones" && devices[0].Percent == 70);
+        Assert(WindowsBatteryReader.MatchBluetooth(nodes, new Dictionary<string, string>()).Count == 0);
+    }),
+    ("Low battery acknowledgement survives refresh and rearms only after recovery", () =>
+    {
+        var alerts = new BatteryAlerts();
+        var headset = new DeviceBattery("headset", "Headset", "", 15);
+        alerts.Update([headset], 20);
+        Assert(alerts.ShouldBlink);
+        alerts.Acknowledge();
+        alerts.Update([headset with { Percent = 10 }], 20);
+        Assert(!alerts.ShouldBlink && alerts.Low.Count == 1);
+        alerts.Update([headset, new("x", "Xbox", "", null, BatteryLevel.Low)], 20);
+        Assert(alerts.ShouldBlink && alerts.Low.Count == 2);
+        alerts.Acknowledge();
+        alerts.Update([headset with { Percent = 80 }], 20);
+        Assert(!alerts.ShouldBlink && alerts.Low.Count == 0);
+        alerts.Update([headset], 20);
+        Assert(alerts.ShouldBlink);
+    }),
+    ("Changing the battery threshold reevaluates current readings", () =>
+    {
+        var alerts = new BatteryAlerts();
+        DeviceBattery[] devices = [new("a", "A", "", 30)];
+        alerts.Update(devices, 20); Assert(!alerts.ShouldBlink);
+        alerts.Update(devices, 30); Assert(alerts.ShouldBlink);
+        alerts.Update(devices, 29); Assert(!alerts.ShouldBlink && alerts.Low.Count == 0);
+    }),
+    ("Battery timestamps are relative and tray text fits the native tooltip", () =>
+    {
+        var now = DateTimeOffset.Now;
+        Assert(BatteryPresentation.Age(null, now) == "尚未更新");
+        Assert(BatteryPresentation.Age(now.AddSeconds(-59), now) == "刚刚更新");
+        Assert(BatteryPresentation.Age(now.AddMinutes(-5), now) == "5 分钟前更新");
+        Assert(BatteryPresentation.Age(now.AddHours(-2), now) == "2 小时前更新");
+        var tooltip = BatteryPresentation.Tooltip([new("a", new string('A', 200), "", 10)]);
+        Assert(tooltip.Length <= 127 && tooltip.Contains("低电量"));
+    }),
+    ("Battery settings persist without touching performance preferences", () =>
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "CherryDesk-battery-test-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(folder, "battery-settings.json");
+        try
+        {
+            var store = new BatterySettingsStore(path);
+            Assert(store.Load() == 20);
+            store.Save(35); Assert(store.Load() == 35 && !File.Exists(path + ".tmp"));
+            store.Save(101); Assert(store.Load() == 100);
+            store.Save(0); Assert(store.Load() == 1);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); if (Directory.Exists(folder)) Directory.Delete(folder); }
+    }),
+    ("Concurrent battery refreshes share one read and missing readings disappear", () =>
+    {
+        using var reader = new BatteryProbe { Block = true };
+        using var controller = new BatteryController(reader, transient: true);
+        var first = controller.RefreshAsync();
+        Assert(reader.Entered.Wait(2000));
+        Assert(ReferenceEquals(first, controller.RefreshAsync()));
+        reader.Release.Set(); first.GetAwaiter().GetResult();
+        Assert(reader.Reads == 1 && controller.Devices.Count == 1 && controller.LastUpdated is not null);
+        reader.Result = new(Array.Empty<DeviceBattery>(), Array.Empty<string>());
+        controller.RefreshAsync().GetAwaiter().GetResult();
+        Assert(controller.Devices.Count == 0 && !controller.Alerts.ShouldBlink);
+    }),
+    ("Exiting discards an in-flight battery result", () =>
+    {
+        using var reader = new BatteryProbe { Block = true };
+        using var controller = new BatteryController(reader, transient: true);
+        var changes = 0;
+        controller.Changed += () => changes++;
+        var task = controller.RefreshAsync();
+        Assert(reader.Entered.Wait(2000));
+        controller.Dispose();
+        reader.Release.Set(); task.GetAwaiter().GetResult();
+        Assert(changes == 1 && controller.LastUpdated is null && controller.Devices.Count == 0);
+    }),
+    ("Audio dropdown applies immediately while refresh and rollback never switch again", () =>
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            System.Windows.Application? app = null;
+            CherryDesk.MainWindow? window = null;
+            try
+            {
+                app = new System.Windows.Application { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
+                app.Resources.MergedDictionaries.Add(new System.Windows.ResourceDictionary { Source = new Uri("pack://application:,,,/CherryDesk;component/Theme.xaml") });
+                using var overlay = new OverlayController(true);
+                using var battery = new BatteryController(new BatteryProbe(), transient: true);
+                var backend = new SelectionBackend();
+                window = new CherryDesk.MainWindow(new AudioSwitcher(backend), overlay, battery);
+                window.RefreshDevices();
+                Assert(backend.Calls == 0 && (string)window.OutputDevices.SelectedValue == "old");
+                window.OutputDevices.SelectedValue = "new";
+                Assert(backend.Calls == 3 && backend.Defaults[(AudioFlow.Output, AudioRole.Multimedia)] == "new");
+                window.InputDevices.SelectedValue = "new";
+                Assert(backend.Calls == 6 && backend.Defaults[(AudioFlow.Input, AudioRole.Multimedia)] == "new");
+                window.RefreshDevices(); window.RefreshDevices();
+                Assert(backend.Calls == 6);
+                foreach (var role in Enum.GetValues<AudioRole>()) backend.Defaults[(AudioFlow.Output, role)] = "old";
+                window.RefreshDevices();
+                Assert(backend.Calls == 6 && (string)window.OutputDevices.SelectedValue == "old");
+                window.SyncCommunications.IsChecked = false;
+                window.OutputDevices.SelectedValue = "new";
+                Assert(backend.Calls == 8 && backend.Defaults[(AudioFlow.Output, AudioRole.Communications)] == "old");
+                window.OutputDevices.SelectedValue = "old";
+                backend.FailNew = true;
+                window.OutputDevices.SelectedValue = "new";
+                Assert((string)window.OutputDevices.SelectedValue == "old");
+                Assert(backend.Defaults[(AudioFlow.Output, AudioRole.Multimedia)] == "old");
+                var calls = backend.Calls;
+                window.RefreshDevices(); Assert(backend.Calls == calls);
+            }
+            catch (Exception ex) { failure = ex; }
+            finally
+            {
+                if (window is not null) { window.AllowClose = true; window.Close(); }
+                app?.Shutdown();
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        if (!thread.Join(10000)) throw new TimeoutException("WPF audio selection test timed out");
+        if (failure is not null) throw failure;
+    }),
     ("Overlay preferences round-trip with atomic replacement", () =>
     {
         var folder = Path.Combine(Path.GetTempPath(), "CherryDesk-overlay-test-" + Guid.NewGuid().ToString("N"));
@@ -267,6 +411,41 @@ internal sealed class ReaderProbe : IDisposable
             disposed = true;
             lock (probe) { probe.Disposed++; probe.Active--; }
         }
+    }
+}
+
+internal sealed class BatteryProbe : IBatteryReader, IDisposable
+{
+    public int Reads;
+    public bool Block;
+    public ManualResetEventSlim Entered { get; } = new(false);
+    public ManualResetEventSlim Release { get; } = new(false);
+    public BatteryReadResult Result = new(new[] { new DeviceBattery("a", "A", "", 10) }, Array.Empty<string>());
+    public BatteryReadResult Read()
+    {
+        Interlocked.Increment(ref Reads);
+        Entered.Set();
+        if (Block && !Release.Wait(2000)) throw new TimeoutException("Battery fixture was not released");
+        return Result;
+    }
+    public void Dispose() { Entered.Dispose(); Release.Dispose(); }
+}
+
+internal sealed class SelectionBackend : IAudioBackend
+{
+    public readonly Dictionary<(AudioFlow, AudioRole), string> Defaults = Enum.GetValues<AudioFlow>()
+        .SelectMany(flow => Enum.GetValues<AudioRole>().Select(role => (flow, role))).ToDictionary(key => key, _ => "old");
+    public int Calls;
+    public bool FailNew;
+    public IReadOnlyList<AudioDevice> GetDevices(AudioFlow flow) => [new("old", "Old", flow), new("new", "New", flow)];
+    public string? GetDefault(AudioFlow flow, AudioRole role) { currentFlow = flow; return Defaults[(flow, role)]; }
+    private AudioFlow currentFlow;
+    // The test's devices have shared IDs; the flow was last resolved by GetDefault during Switch.
+    public void SetDefault(string id, AudioRole role)
+    {
+        Calls++;
+        Defaults[(currentFlow, role)] = id;
+        if (FailNew && id == "new") throw new InvalidOperationException("Simulated endpoint failure");
     }
 }
 internal sealed class FakeBackend : IAudioBackend

@@ -12,6 +12,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CherryDesk.Audio;
+using CherryDesk.Battery;
 using CherryDesk.Performance;
 using Forms = System.Windows.Forms;
 
@@ -25,11 +26,30 @@ public partial class App : Application
     private Forms.ContextMenuStrip? menu;
     private MainWindow? window;
     private OverlayController? performance;
+    private BatteryController? battery;
+    private BatteryTrayIcons? trayIcons;
+    private readonly DispatcherTimer batteryBlink = new() { Interval = TimeSpan.FromMilliseconds(650) };
+    private bool blinkPhase;
+    private int blinkTicks;
     private readonly AudioSwitcher audio = new(new CoreAudioBackend());
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (e.Args.Contains("--battery-diagnose"))
+        {
+            var index = Array.IndexOf(e.Args, "--battery-diagnose");
+            var path = index + 1 < e.Args.Length ? e.Args[index + 1] : "battery-diagnostics.json";
+            try
+            {
+                var watch = Stopwatch.StartNew();
+                var result = new WindowsBatteryReader().Read();
+                File.WriteAllText(path, JsonSerializer.Serialize(new { CollectionMilliseconds = watch.Elapsed.TotalMilliseconds, Result = result }, new JsonSerializerOptions { WriteIndented = true }));
+                Shutdown(result.Errors.Count == 0 ? 0 : 1);
+            }
+            catch (Exception ex) { Log(ex); Shutdown(1); }
+            return;
+        }
         if (e.Args.Contains("--performance-diagnose"))
         {
             DiagnosePerformance(e.Args);
@@ -52,34 +72,49 @@ public partial class App : Application
             Log(args.Exception);
             MessageBox.Show("发生错误：" + args.Exception.Message, "CherryDesk");
             performance?.Dispose();
+            battery?.Dispose();
             if (window is not null) window.AllowClose = true;
             Shutdown(1);
             args.Handled = true;
         };
 
         var overlaySmoke = e.Args.Contains("--overlay-smoke-test");
-        performance = new OverlayController(overlaySmoke || e.Args.Contains("--smoke-test"));
-        window = new MainWindow(audio, performance);
+        var batterySmoke = e.Args.Contains("--battery-smoke-test");
+        var smoke = overlaySmoke || batterySmoke || e.Args.Contains("--smoke-test");
+        performance = new OverlayController(smoke);
+        battery = new BatteryController(batterySmoke ? new PreviewBatteryReader() : null, transient: smoke);
+        window = new MainWindow(audio, performance, battery);
         MainWindow = window;
         menu = new Forms.ContextMenuStrip();
         menu.Opening += (_, _) => RebuildTrayMenu();
         tray = new Forms.NotifyIcon
         {
-            Text = "CherryDesk · 音频与性能",
-            Icon = System.Drawing.SystemIcons.Application,
+            Text = BatteryPresentation.Tooltip(Array.Empty<DeviceBattery>()),
+            Icon = (trayIcons = new BatteryTrayIcons()).Normal,
             ContextMenuStrip = menu,
             Visible = true
         };
         tray.DoubleClick += (_, _) => ShowMainWindow();
+        tray.MouseClick += (_, args) => { if (args.Button == Forms.MouseButtons.Left && battery.Alerts.Low.Count > 0) ShowBatteryPage(); };
+        battery.Changed += RefreshBatteryTray;
+        batteryBlink.Tick += (_, _) =>
+        {
+            blinkTicks++;
+            blinkPhase = !blinkPhase;
+            if (tray is not null && trayIcons is not null) tray.Icon = blinkPhase ? trayIcons.Low : trayIcons.Normal;
+        };
         window.Show();
+        battery.Start();
         SessionEnding += (_, _) =>
         {
             performance.Dispose();
+            battery.Dispose();
             window.AllowClose = true;
         };
         if (overlaySmoke) _ = performance.SetEnabledAsync(true);
         if (overlaySmoke || e.Args.Contains("--show-performance")) window.SelectPage("performance");
-        if (e.Args.Contains("--smoke-test") || overlaySmoke)
+        if (batterySmoke || e.Args.Contains("--show-battery")) window.SelectPage("battery");
+        if (smoke)
         {
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(overlaySmoke ? 6 : 3) };
             timer.Tick += async (_, _) =>
@@ -118,9 +153,31 @@ public partial class App : Application
                     }
                     window.UpdateLayout();
                     var content = (FrameworkElement)window.Content;
-                    var index = Array.IndexOf(e.Args, overlaySmoke ? "--overlay-smoke-test" : "--smoke-test");
+                    var index = Array.IndexOf(e.Args, overlaySmoke ? "--overlay-smoke-test" : batterySmoke ? "--battery-smoke-test" : "--smoke-test");
                     var path = index + 1 < e.Args.Length ? e.Args[index + 1] : "ui-preview.png";
+                    var trayAlertVerified = false;
+                    if (batterySmoke)
+                    {
+                        await battery.RefreshAsync();
+                        window.SelectPage("audio");
+                        var ticksBefore = blinkTicks;
+                        battery.SetThreshold(80); // The previously acknowledged fixture mouse becomes newly low.
+                        if (!batteryBlink.IsEnabled || !tray.Text.Contains("WH-1000XM5")) throw new InvalidOperationException("Tray alert did not start or lacked device details");
+                        await Task.Delay(1100);
+                        if (blinkTicks <= ticksBefore) throw new InvalidOperationException("Tray icon timer did not tick");
+                        window.SelectPage("battery");
+                        battery.Acknowledge();
+                        if (batteryBlink.IsEnabled || tray.Icon != trayIcons!.Low) throw new InvalidOperationException("Acknowledging the alert did not stop blinking");
+                        battery.SetThreshold(20);
+                        trayAlertVerified = true;
+                    }
                     RenderPreview(window, path);
+                    if (batterySmoke)
+                    {
+                        if (battery.Devices.Count != 3 || battery.Alerts.Low.Count != 2) throw new InvalidOperationException("Battery preview fixture failed");
+                        window.SelectPage("audio");
+                        RenderPreview(window, Path.Combine(Path.GetDirectoryName(path)!, Path.GetFileNameWithoutExtension(path) + "-audio.png"));
+                    }
                     if (overlaySmoke)
                         RenderPreview(performance.Overlay, Path.Combine(Path.GetDirectoryName(path)!, Path.GetFileNameWithoutExtension(path) + "-overlay.png"));
                     var liveSnapshot = performance.Latest;
@@ -146,8 +203,14 @@ public partial class App : Application
                         Height = content.ActualHeight,
                         OutputCount = window.OutputDevices.Items.Count,
                         InputCount = window.InputDevices.Items.Count,
-                        OutputEnabled = window.ApplyOutput.IsEnabled,
-                        InputEnabled = window.ApplyInput.IsEnabled,
+                        OutputEnabled = window.OutputDevices.IsEnabled,
+                        InputEnabled = window.InputDevices.IsEnabled,
+                        Battery = battery.Devices,
+                        BatteryUpdated = battery.LastUpdated,
+                        BatteryErrors = battery.Errors,
+                        BatteryLowCount = battery.Alerts.Low.Count,
+                        UsesSimulatedBattery = batterySmoke,
+                        TrayAlertVerified = trayAlertVerified,
                         TrayItems = menu!.Items.Count,
                         NativeLockVerified = nativeLockVerified,
                         HideShowVerified = hideShowVerified,
@@ -165,12 +228,46 @@ public partial class App : Application
                 {
                     Log(ex);
                     performance.Dispose();
+                    battery.Dispose();
                     window.AllowClose = true;
                     Shutdown(1);
                 }
             };
             timer.Start();
         }
+    }
+
+    private sealed class PreviewBatteryReader : IBatteryReader
+    {
+        public BatteryReadResult Read() => new(new[]
+        {
+            new DeviceBattery("preview:headset", "WH-1000XM5", "蓝牙 · 已连接", 15),
+            new DeviceBattery("preview:mouse", "示例鼠标（仅用于界面验证）", "演示数据", 76),
+            new DeviceBattery("preview:xbox", "Xbox 手柄 1", "无线 · XInput", null, BatteryLevel.Low)
+        }, Array.Empty<string>());
+    }
+
+    private void RefreshBatteryTray()
+    {
+        if (battery is null || tray is null || trayIcons is null) return;
+        tray.Text = BatteryPresentation.Tooltip(battery.Alerts.Low);
+        if (battery.Alerts.ShouldBlink)
+        {
+            if (!batteryBlink.IsEnabled) { blinkPhase = true; tray.Icon = trayIcons.Low; batteryBlink.Start(); }
+        }
+        else
+        {
+            batteryBlink.Stop();
+            tray.Icon = battery.Alerts.Low.Count > 0 ? trayIcons.Low : trayIcons.Normal;
+        }
+    }
+
+    private void ShowBatteryPage()
+    {
+        if (window is null) return;
+        window.SelectPage("battery");
+        ShowMainWindow();
+        battery?.Acknowledge();
     }
 
     private static void RenderPreview(Window target, string path)
@@ -261,7 +358,7 @@ public partial class App : Application
         if (menu is null || window is null) return;
         // Clear does not dispose old ToolStripItems and their event handlers.
         while (menu.Items.Count > 0) menu.Items[0].Dispose();
-        menu.Items.Add("打开桌面助手", null, (_, _) => ShowMainWindow());
+        menu.Items.Add("打开 CherryDesk", null, (_, _) => ShowMainWindow());
         menu.Items.Add(new Forms.ToolStripSeparator());
         try
         {
@@ -277,6 +374,18 @@ public partial class App : Application
         { Checked = window.IncludeCommunications, CheckOnClick = true };
         communication.Click += (_, _) => window.SyncCommunications.IsChecked = communication.Checked;
         menu.Items.Add(communication);
+        if (battery is not null)
+        {
+            var group = new Forms.ToolStripMenuItem("设备电量");
+            group.DropDownItems.Add("查看设备电量", null, (_, _) => ShowBatteryPage());
+            foreach (var device in battery.Devices)
+                group.DropDownItems.Add(new Forms.ToolStripMenuItem($"{device.Name.Replace("&", "&&")}  {device.ValueText}", null, (_, _) => ShowBatteryPage()));
+            if (battery.Devices.Count == 0) group.DropDownItems.Add(new Forms.ToolStripMenuItem("暂未读取到设备电量") { Enabled = false });
+            group.DropDownItems.Add(new Forms.ToolStripSeparator());
+            var refresh = group.DropDownItems.Add(battery.IsRefreshing ? "正在更新…" : "立即更新", null, async (_, _) => await battery.RefreshAsync());
+            refresh.Enabled = !battery.IsRefreshing;
+            menu.Items.Add(group);
+        }
         if (performance is not null)
         {
             var group = new Forms.ToolStripMenuItem("性能悬浮窗");
@@ -330,6 +439,7 @@ public partial class App : Application
     private void ExitApplication()
     {
         performance?.Dispose();
+        battery?.Dispose();
         if (window is not null) window.AllowClose = true;
         Shutdown();
     }
@@ -337,7 +447,10 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         performance?.Dispose();
+        batteryBlink.Stop();
+        if (battery is not null) { battery.Changed -= RefreshBatteryTray; battery.Dispose(); }
         if (tray is not null) { tray.Visible = false; tray.Dispose(); }
+        trayIcons?.Dispose();
         menu?.Dispose();
         if (ownsMutex) instanceMutex?.ReleaseMutex();
         instanceMutex?.Dispose();

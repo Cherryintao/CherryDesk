@@ -5,4 +5,7 @@ artifacts/
 **/obj/
 .vs/
 *.user
+battery-settings.json
+overlay-settings.json
+logs/
 

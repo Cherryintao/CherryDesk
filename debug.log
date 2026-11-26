@@ -1,0 +1,8 @@
+[26668:22648:1126/165116.917:WARNING:pyimmwrapper.cpp(716)] commanager init fail
+[26668:22648:1126/165116.934:WARNING:t_skinfilemap.cpp(63)] SGRenderLog:CheckUpdate newMem.OpenMem Suc, szNewMem:Local\sgime_skin.v5.filemap.sogouime
+[26668:22648:1126/165116.934:WARNING:t_skinfilemap.cpp(65)] SGRenderLog:CheckUpdate finish: old version:1
+[26668:22648:1126/165116.934:WARNING:t_skinfilemap.cpp(67)] SGRenderLog:CheckUpdate finish: new version:5
+[27268:20508:1126/165533.044:WARNING:pyimmwrapper.cpp(716)] commanager init fail
+[27268:20508:1126/165533.061:WARNING:t_skinfilemap.cpp(63)] SGRenderLog:CheckUpdate newMem.OpenMem Suc, szNewMem:Local\sgime_skin.v5.filemap.sogouime
+[27268:20508:1126/165533.061:WARNING:t_skinfilemap.cpp(65)] SGRenderLog:CheckUpdate finish: old version:1
+[27268:20508:1126/165533.061:WARNING:t_skinfilemap.cpp(67)] SGRenderLog:CheckUpdate finish: new version:5

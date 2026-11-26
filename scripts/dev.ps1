@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('build','run','test','diagnose','performance','publish')]
+    [ValidateSet('build','run','test','diagnose','battery','performance','publish')]
     [string]$Action = 'run'
 )
 $ErrorActionPreference = 'Stop'
@@ -28,6 +28,10 @@ try {
         'performance' {
             New-Item -ItemType Directory -Force -Path 'work' | Out-Null
             & $dotnet run --project $app -c Release -- --performance-diagnose (Join-Path $projectRoot 'work\performance-diagnostics.json')
+        }
+        'battery' {
+            New-Item -ItemType Directory -Force -Path 'work' | Out-Null
+            & $dotnet run --project $app -c Release -- --battery-diagnose (Join-Path $projectRoot 'work\battery-diagnostics.json')
         }
         'publish' {
             & $dotnet publish $app -c Release -r win-x64 --self-contained true `

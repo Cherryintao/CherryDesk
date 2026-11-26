@@ -33,6 +33,9 @@
               <RadioButton x:Name="AudioNavigation" Style="{StaticResource NavigationItem}" GroupName="Sections" IsChecked="True" Checked="NavigationChanged" AutomationProperties.Name="音频设备">
                 <StackPanel Orientation="Horizontal"><Path Width="20" Height="20" Stretch="Uniform" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" StrokeThickness="1.5" Data="M 2 8 L 6 8 L 11 4 L 11 18 L 6 14 L 2 14 Z M 15 7 C 19 9 19 13 15 15 M 18 4 C 24 8 24 14 18 18" /><TextBlock Text="音频设备" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="14" /></StackPanel>
               </RadioButton>
+              <RadioButton x:Name="BatteryNavigation" Style="{StaticResource NavigationItem}" GroupName="Sections" Checked="NavigationChanged" AutomationProperties.Name="设备电量">
+                <StackPanel Orientation="Horizontal"><Path Width="20" Height="20" Stretch="Uniform" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" StrokeThickness="1.5" Data="M 1 5 L 19 5 L 19 17 L 1 17 Z M 21 9 L 23 9 L 23 13 L 21 13 M 5 8 L 5 14 M 9 8 L 9 14" /><TextBlock Text="设备电量" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="14" /></StackPanel>
+              </RadioButton>
               <RadioButton x:Name="PerformanceNavigation" Style="{StaticResource NavigationItem}" GroupName="Sections" Checked="NavigationChanged" AutomationProperties.Name="性能监控">
                 <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                   <Path Width="20" Height="20" Stretch="Uniform" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" StrokeThickness="1.5" Data="M 2 3 L 2 20 L 22 20 M 5 15 L 10 9 L 15 12 L 21 4" />
@@ -59,21 +62,15 @@
                 </Grid>
                 <StackPanel Margin="0,32,0,0">
                   <TextBlock Text="声音输出" Foreground="White" FontSize="15" FontWeight="SemiBold" />
-                  <TextBlock Text="选择用于游戏、音乐和系统声音的设备。" Foreground="#9D9D9D" Margin="0,7,0,12" />
-                  <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <ComboBox x:Name="OutputDevices" DisplayMemberPath="Name" SelectedValuePath="Id" AutomationProperties.Name="声音输出设备" SelectionChanged="SelectionChanged" />
-                    <Button x:Name="ApplyOutput" Grid.Column="1" Content="切换输出" Margin="10,0,0,0" Click="SwitchOutput" />
-                  </Grid>
+                  <TextBlock Text="选择后立即切换游戏、音乐和系统声音的输出设备。" Foreground="#9D9D9D" Margin="0,7,0,12" />
+                  <ComboBox x:Name="OutputDevices" DisplayMemberPath="Name" SelectedValuePath="Id" AutomationProperties.Name="声音输出设备" SelectionChanged="SelectionChanged" />
                   <TextBlock x:Name="OutputCurrent" Margin="0,10,0,0" TextWrapping="Wrap" FontSize="12" />
                   <TextBlock x:Name="OutputCommunication" Foreground="#9D9D9D" FontSize="12" Margin="0,5,0,0" TextWrapping="Wrap" />
                 </StackPanel>
                 <Border Height="1" Background="#2B2B2B" Margin="0,25" />
                 <TextBlock Text="麦克风输入" Foreground="White" FontSize="15" FontWeight="SemiBold" />
-                <TextBlock Text="选择用于语音聊天和录音的输入设备。" Foreground="#9D9D9D" Margin="0,7,0,12" />
-                <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                  <ComboBox x:Name="InputDevices" DisplayMemberPath="Name" SelectedValuePath="Id" AutomationProperties.Name="麦克风输入设备" SelectionChanged="SelectionChanged" />
-                  <Button x:Name="ApplyInput" Grid.Column="1" Content="切换输入" Margin="10,0,0,0" Click="SwitchInput" />
-                </Grid>
+                <TextBlock Text="选择后立即切换语音聊天和录音的输入设备。" Foreground="#9D9D9D" Margin="0,7,0,12" />
+                <ComboBox x:Name="InputDevices" DisplayMemberPath="Name" SelectedValuePath="Id" AutomationProperties.Name="麦克风输入设备" SelectionChanged="SelectionChanged" />
                 <TextBlock x:Name="InputCurrent" Margin="0,10,0,0" FontSize="12" TextWrapping="Wrap" />
                 <TextBlock x:Name="InputCommunication" Foreground="#9D9D9D" FontSize="12" Margin="0,5,0,0" TextWrapping="Wrap" />
                 <Border Height="1" Background="#2B2B2B" Margin="0,25" />
@@ -81,6 +78,37 @@
                 <TextBlock Text="让语音聊天与普通声音使用同一组默认设备。" Foreground="#9D9D9D" Margin="26,7,0,0" FontSize="12" />
                 <TextBlock Text="游戏或语音软件需选择“系统默认设备”，才能跟随系统切换。" Foreground="#9D9D9D" Margin="0,27,0,0" FontSize="12" TextWrapping="Wrap" />
                 <TextBlock x:Name="LastRefresh" Foreground="#6E7681" FontSize="11" Margin="0,10,0,0" />
+              </StackPanel>
+              <StackPanel x:Name="BatteryPage" Visibility="Collapsed">
+                <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                  <StackPanel><TextBlock Text="设备电量" FontSize="25" Foreground="White" FontWeight="SemiBold" /><TextBlock Text="查看已连接无线设备的电量。" Foreground="#9D9D9D" Margin="0,9,0,0" /></StackPanel>
+                  <Button x:Name="RefreshBatteryButton" Grid.Column="1" Content="立即更新" Style="{StaticResource SecondaryButton}" Click="ManualBatteryRefresh" VerticalAlignment="Top" Margin="14,3,0,0" />
+                </Grid>
+                <TextBlock x:Name="BatteryUpdatedText" Text="正在读取设备电量…" Foreground="#9D9D9D" FontSize="12" Margin="0,22,0,18" />
+                <ItemsControl x:Name="BatteryDevices">
+                  <ItemsControl.ItemTemplate><DataTemplate>
+                    <Border Background="#252526" BorderBrush="#333333" BorderThickness="1" CornerRadius="3" Padding="20,17" Margin="0,0,0,12">
+                      <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,18,0"><TextBlock Text="{Binding Name}" Foreground="White" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" /><TextBlock Text="{Binding Connection}" Foreground="#9D9D9D" FontSize="12" Margin="0,7,0,0" /><TextBlock Text="{Binding UpdatedText}" Foreground="#6E7681" FontSize="11" Margin="0,7,0,0" /></StackPanel>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" MinWidth="90"><TextBlock Text="{Binding ValueText}" Foreground="{Binding Accent}" FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="25" HorizontalAlignment="Right" /><TextBlock Text="{Binding StateText}" Foreground="{Binding Accent}" FontSize="11" HorizontalAlignment="Right" Margin="0,5,0,0" /></StackPanel>
+                      </Grid>
+                    </Border>
+                  </DataTemplate></ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Border x:Name="BatteryEmptyPanel" Background="#252526" BorderBrush="#333333" BorderThickness="1" CornerRadius="3" Padding="22">
+                  <StackPanel><TextBlock x:Name="BatteryEmptyTitle" Text="暂未读取到设备电量" Foreground="White" FontSize="15" /><TextBlock Text="仅显示能够读取电量的设备。连接耳机或手柄后，可点击“立即更新”。" Foreground="#9D9D9D" Margin="0,9,0,0" TextWrapping="Wrap" LineHeight="21" /></StackPanel>
+                </Border>
+                <Border Height="1" Background="#2B2B2B" Margin="0,24" />
+                <TextBlock Text="低电量提醒" Foreground="White" FontSize="15" FontWeight="SemiBold" />
+                <Grid Margin="0,17,0,0"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                  <TextBlock Text="电量低于或等于此值时提醒" VerticalAlignment="Center" />
+                  <TextBox x:Name="BatteryThreshold" Grid.Column="1" Text="20" Width="56" MaxLength="3" Background="#313131" Foreground="White" BorderBrush="#454545" Padding="8,5" VerticalContentAlignment="Center" HorizontalContentAlignment="Right" AutomationProperties.Name="低电量提醒阈值" LostKeyboardFocus="BatteryThresholdLostFocus" KeyDown="BatteryThresholdKeyDown" />
+                  <TextBlock Grid.Column="2" Text="%" VerticalAlignment="Center" Margin="8,0,0,0" />
+                </Grid>
+                <TextBlock Text="输入 1–100，按 Enter 或离开输入框后保存。默认 20%。" Foreground="#6E7681" FontSize="11" Margin="0,9,0,0" />
+                <TextBlock Text="低电量时右下角托盘图标闪烁，悬停查看设备；打开此页后停止闪烁。没有弹窗或提示音。" Foreground="#9D9D9D" FontSize="12" TextWrapping="Wrap" LineHeight="21" Margin="0,17,0,0" />
+                <TextBlock Text="手柄若只提供电量档位，在“低电量”或“即将耗尽”时提醒。设备上报的电量可能分档或延迟。" Foreground="#9D9D9D" FontSize="12" TextWrapping="Wrap" LineHeight="21" Margin="0,8,0,0" />
+                <TextBlock x:Name="BatteryWarning" Foreground="#E5AA39" FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0" />
               </StackPanel>
               <StackPanel x:Name="PerformancePage" Visibility="Collapsed">
                 <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -133,7 +161,7 @@
       <Border Grid.Row="2" Background="#181818" BorderBrush="#2B2B2B" BorderThickness="0,1,0,0">
         <Grid Margin="14,0"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
           <TextBlock x:Name="StatusText" Text="就绪" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-          <TextBlock Grid.Column="1" Text="v0.3.0" Foreground="#9D9D9D" FontSize="11" VerticalAlignment="Center" Margin="16,0,0,0" />
+          <TextBlock Grid.Column="1" Text="v0.4.0" Foreground="#9D9D9D" FontSize="11" VerticalAlignment="Center" Margin="16,0,0,0" />
         </Grid>
       </Border>
     </Grid>
