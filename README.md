@@ -4,9 +4,60 @@
 使用。当前版本为 0.4，包含麦克风、声音输出切换、无线设备电量，
 以及 CPU/GPU/内存性能悬浮窗。外星仔加速器暂停后关机尚未实现，界面没有真实关机入口。
 
+## 在另一台电脑 clone 后首次运行
+
+准备一台 Windows 10/11 x64 电脑，并安装好用于 clone 的 Git。无需预先安装
+Visual Studio、.NET SDK 或 .NET 运行时。选择一个当前用户可写的目录，在 PowerShell 中执行：
+
+```powershell
+git clone https://github.com/Cherryintao/CherryDesk.git CherryDesk
+Set-Location .\CherryDesk
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup.ps1
+.\CherryDesk.cmd
+```
+
+如果已经 clone 并进入项目根目录，只需执行最后两行，等环境准备成功后再启动。
+`git clone` 只下载源码，不会执行安装或构建脚本；当前 `CherryDesk.cmd` 也不会自动下载缺失的 SDK，
+所以新电脑第一次需要主动运行一次 `setup.ps1`。这个脚本会读取 `global.json` 中的 SDK 版本，
+从微软下载对应的 Windows x64 SDK、校验 SHA512 并解压到项目的 `.tools/dotnet`。
+首次准备需要联网和解压空间，完成后显示 SDK 信息；不需要管理员权限，也不会修改系统 PATH。
+命令中的 `ExecutionPolicy Bypass` 仅作用于该次 PowerShell 进程，不更改系统执行策略。
+
+随后 `CherryDesk.cmd` 会使用项目内的 SDK 构建并启动程序；修改代码后再次运行即可。
+准备好的 SDK 和缓存会留在本机，下次不必重新下载。即使电脑已经安装了系统 .NET，
+当前脚本仍使用 `.tools` 中的便携 SDK，因此也应先运行上述准备命令。项目不依赖固定盘符，
+不需要沿用公司电脑的 `D:\workspace\CherryDesk` 路径。
+
+## 日常修改、测试与打包
+
+所有命令都在包含 `README.md` 和 `CherryDesk.cmd` 的项目根目录运行。
+开始重新构建或拉取更新前，通过托盘右键菜单“退出”结束旧程序；窗口右上角的关闭按钮只会隐藏到托盘。
+可以用任意代码编辑器修改 `src` 下的 C# 和 XAML。双击 `Build-CherryDesk.cmd` 只构建，
+双击 `CherryDesk.cmd` 构建并启动；运行回归测试则使用：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\dev.ps1 test
+```
+
+测试使用模拟音频后端，不会切换本机真实音频设备。要获取其他电脑上传的代码，先提交或妥善保留
+本机修改，再运行 `git pull`。如果更新包含 `global.json` 中 SDK 版本的变化，重新执行一次
+前面的 `setup.ps1`，然后测试和启动即可；一般的代码更新不需要重装环境。
+
+如果只想把程序带到其他电脑运行，可生成包含 .NET 运行时的便携包。这个步骤需要联网访问官方 NuGet 源：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\dev.ps1 publish
+```
+
+生成结果在 `artifacts/CherryDesk-win-x64`。把整个文件夹复制到目标电脑，双击其中的
+`CherryDesk.exe` 即可；只运行便携包的电脑无需 Git、SDK 或单独安装 .NET 运行时。
+源码和测试、脚本、文档需要提交到 Git；`.tools`、`work`、`artifacts`、各项目的 `bin`/`obj`
+以及本地设置和日志已被 `.gitignore` 排除，不会随 clone 下载。新电脑会生成自己的缓存和设置。
+设置保存在实际运行程序的目录中，因此源码启动和便携包的电量阈值、悬浮窗设置也各自独立。
+
 ## 运行和使用
 
-开发电脑上双击 `CherryDesk.cmd` 即可构建并启动。主窗口采用左侧功能导航和右侧
+完成上述首次环境准备后，双击 `CherryDesk.cmd` 即可构建并启动。主窗口采用左侧功能导航和右侧
 设置页，配色参考 [VS Code Dark Modern](https://github.com/microsoft/vscode/blob/main/extensions/theme-defaults/themes/dark_modern.json)，
 依次包含音频设备、设备电量、性能监控和关机助手；关机助手目前为适配说明页。窗口分别显示输出与麦克风
 的当前默认设备和通信设备；在下拉框选择设备后立即切换。自动刷新和系统默认设备变化不会触发写入，
@@ -82,21 +133,26 @@ Ctrl+Shift+F10/F11 不会在监控已关闭时偷偷启用采集。GPU 默认优
 
 使用 C#、WPF、.NET 10 和少量 WinForms 托盘接口，当前只构建 x64。
 固定 SDK 10.0.404，便携 SDK 放在 `.tools/dotnet`，不修改系统 PATH，
-不需要安装完整 Visual Studio。首次在新电脑开发时运行
-`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1`。
-脚本从微软下载 SDK 并核对官方元数据中的 SHA512；这不修改系统执行策略。
+不需要安装完整 Visual Studio。`.tools/nuget` 保存包缓存，`work` 保存下载压缩包、
+诊断结果和界面验证截图；这些本地文件可能占用较大空间，但不属于源码仓库。
 
-在仓库根目录使用 `scripts/dev.ps1`：默认动作 `run`，也支持 `build`、
-`test`、`diagnose`、`battery`、`performance`、`publish`。例如 `./scripts/dev.ps1 test` 会运行
-不改变真实音频设置的回归测试。`./scripts/dev.ps1 diagnose` 在
-`work/audio-diagnostics.json` 输出真实设备和默认角色的只读快照。
-`./scripts/dev.ps1 performance` 连续采集六次，在
-`work/performance-diagnostics.json` 保存数据和采集耗时。
+`scripts/dev.ps1` 默认动作是 `run`，也支持 `build`、`test`、`diagnose`、`battery`、
+`performance` 和 `publish`。调用时沿用上面的 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File`
+格式，只替换最后的动作名称。例如回家检查设备电量时，可以运行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\dev.ps1 battery
+```
+
+结果写入 `work/battery-diagnostics.json`。动作 `diagnose` 在 `work/audio-diagnostics.json`
+输出真实音频设备和默认角色的只读快照；`performance` 连续采集六次，在
+`work/performance-diagnostics.json` 保存数据和采集耗时。电量页为空可能表示设备不支持当前读取方式，
+不一定是环境安装失败；迈从 A7 的 2.4G 协议目前尚未适配。
 
 日常构建和测试不需要第三方 NuGet 包，`NuGet.Config` 默认清空源以便
-离线还原。`publish` 为生成包含运行时的便携包，会显式访问官方 NuGet 源
-下载微软 Windows x64 运行时包，输出到 `artifacts/CherryDesk-win-x64`。
-可以把整个发布目录复制回家运行其中的 `CherryDesk.exe`，不需要 SDK。
+离线还原；SDK 准备完成后，当前版本的普通构建和测试可以离线运行。
+若提示 `Missing local SDK`，说明当前 clone 目录还没准备好便携 SDK，先执行 `setup.ps1`；
+若下载失败，应先确认电脑能够访问微软下载站点或发布所需的 NuGet 源，再重新运行失败的命令。
 
 已在 Win10 Pro 22H2 上完成构建、31 项回归测试、真实端点枚举、现有默认
 设备写回检查及窗口/托盘启动验证。本机识别到两个输出端点，没有活动
