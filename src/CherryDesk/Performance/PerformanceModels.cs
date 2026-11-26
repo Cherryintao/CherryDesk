@@ -13,7 +13,13 @@ public sealed record GpuAdapter(string Id, string Key, string Name, ulong Dedica
 public sealed record GpuCounterSample(string Instance, double Value, uint Status);
 public sealed record PerformanceSnapshot(DateTimeOffset Timestamp, double? CpuPercent,
     ulong? MemoryUsed, ulong? MemoryTotal, IReadOnlyList<GpuAdapter> Adapters,
-    IReadOnlyDictionary<string, double> GpuUsage, string? CpuError, string? MemoryError, string? GpuError);
+    IReadOnlyDictionary<string, double> GpuUsage, string? CpuError, string? MemoryError, string? GpuError)
+{
+    public string? CpuName { get; init; }
+    public double? CpuTemperature { get; init; }
+    public IReadOnlyDictionary<string, double> GpuTemperatures { get; init; } = new Dictionary<string, double>();
+    public string? CpuTemperatureSource { get; init; }
+}
 
 internal static partial class PerformanceMath
 {

@@ -178,8 +178,34 @@ public partial class App : Application
                         window.SelectPage("audio");
                         RenderPreview(window, Path.Combine(Path.GetDirectoryName(path)!, Path.GetFileNameWithoutExtension(path) + "-audio.png"));
                     }
+                    var layoutsVerified = false;
                     if (overlaySmoke)
-                        RenderPreview(performance.Overlay, Path.Combine(Path.GetDirectoryName(path)!, Path.GetFileNameWithoutExtension(path) + "-overlay.png"));
+                    {
+                        string OverlayPath(string suffix) => Path.Combine(Path.GetDirectoryName(path)!, Path.GetFileNameWithoutExtension(path) + suffix + ".png");
+                        RenderPreview(performance.Overlay, OverlayPath("-overlay"));
+                        var compactWidth = performance.Overlay.Width;
+                        performance.SetLayout(OverlayLayout.Full);
+                        if (performance.Overlay.Width != 360 || performance.Overlay.FullPanel.Visibility != Visibility.Visible
+                            || performance.Overlay.CpuName.Text == "CPU · 未识别到处理器型号")
+                            throw new InvalidOperationException("Full overlay layout / CPU identification check failed");
+                        RenderPreview(performance.Overlay, OverlayPath("-full"));
+                        performance.SetLayout(OverlayLayout.Compact);
+                        if (performance.Overlay.Width != compactWidth || performance.Overlay.Height != 74 || !performance.Overlay.HasNativeClickThrough)
+                            throw new InvalidOperationException("Compact overlay layout / native style check failed");
+                        // Deterministic visual QA for the temperature columns; live diagnostics remain real.
+                        var sample = performance.Latest!;
+                        var adapter = PerformanceMath.SelectGpu(sample.Adapters, performance.Settings.GpuKey);
+                        var previewSample = sample with { CpuTemperature = 64,
+                            GpuTemperatures = adapter is null ? new Dictionary<string, double>() : new Dictionary<string, double> { [adapter.Id] = 58 } };
+                        performance.Overlay.UpdateSnapshot(previewSample, adapter);
+                        RenderPreview(performance.Overlay, OverlayPath("-sample-temperatures-compact"));
+                        performance.SetLayout(OverlayLayout.Full);
+                        performance.Overlay.UpdateSnapshot(previewSample, adapter);
+                        RenderPreview(performance.Overlay, OverlayPath("-sample-temperatures-full"));
+                        performance.SetLayout(OverlayLayout.Compact);
+                        performance.Overlay.UpdateSnapshot(sample, adapter);
+                        layoutsVerified = true;
+                    }
                     var liveSnapshot = performance.Latest;
                     var disabledSamplingVerified = false;
                     if (overlaySmoke)
@@ -215,6 +241,7 @@ public partial class App : Application
                         NativeLockVerified = nativeLockVerified,
                         HideShowVerified = hideShowVerified,
                         FocusPreserved = focusPreserved,
+                        OverlayLayoutsVerified = layoutsVerified,
                         Performance = liveSnapshot,
                         DisabledSamplingVerified = disabledSamplingVerified,
                         IdleSamplingVerified = idleSamplingVerified,
@@ -403,6 +430,12 @@ public partial class App : Application
             group.DropDownItems.Add(enabled);
             group.DropDownItems.Add(visible);
             group.DropDownItems.Add(locked);
+            var compact = new Forms.ToolStripMenuItem("简洁模式") { Checked = performance.Settings.Layout == OverlayLayout.Compact };
+            compact.Click += (_, _) => performance.SetLayout(OverlayLayout.Compact);
+            var full = new Forms.ToolStripMenuItem("完整模式") { Checked = performance.Settings.Layout == OverlayLayout.Full };
+            full.Click += (_, _) => performance.SetLayout(OverlayLayout.Full);
+            group.DropDownItems.Add(compact);
+            group.DropDownItems.Add(full);
             var reset = group.DropDownItems.Add("重置位置", null, (_, _) => { performance.ResetPosition(); performance.SetVisible(true); });
             reset.Enabled = performance.Settings.Enabled;
             menu.Items.Add(group);

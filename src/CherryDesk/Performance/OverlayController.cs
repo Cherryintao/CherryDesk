@@ -37,9 +37,9 @@ internal sealed class OverlayController : IDisposable
         }
         Overlay = new OverlayWindow();
         new WindowInteropHelper(Overlay).EnsureHandle();
+        Overlay.ApplySettings(Settings);
         Overlay.MoveToVisiblePosition(Settings.Left, Settings.Top);
         Settings = Settings with { Left = Overlay.Left, Top = Overlay.Top };
-        Overlay.ApplySettings(Settings);
         if (Settings.Enabled && Settings.OverlayVisible) Overlay.Show();
         Overlay.ToggleVisibilityRequested += () => { if (Settings.Enabled) SetVisible(!Settings.OverlayVisible); };
         Overlay.ToggleLockRequested += () => { if (Settings.Enabled) SetLocked(!Settings.Locked); };
@@ -71,7 +71,7 @@ internal sealed class OverlayController : IDisposable
         var revision = ++enableRevision;
         IsTransitioning = true;
         MonitoringWarning = null;
-        if (!enabled) Latest = null;
+        if (!enabled) { Latest = null; Overlay.ClearSnapshot(); }
         Change(Settings with { Enabled = enabled });
         Changed?.Invoke();
         try { await monitor.SetEnabledAsync(enabled); }
@@ -86,6 +86,7 @@ internal sealed class OverlayController : IDisposable
     public void SetVisible(bool visible) { if (Settings.Enabled) Change(Settings with { OverlayVisible = visible }); }
     public void SetLocked(bool locked) => Change(Settings with { Locked = locked });
     public void SetOpacity(double opacity) => Change((Settings with { Opacity = opacity }).Normalize());
+    public void SetLayout(OverlayLayout layout) => Change((Settings with { Layout = layout }).Normalize());
     public void SelectGpu(string key) => Change(Settings with { GpuKey = key });
     public void ResetPosition()
     {
@@ -98,6 +99,7 @@ internal sealed class OverlayController : IDisposable
         if (disposed || value == Settings) return;
         Settings = value;
         Overlay.ApplySettings(Settings);
+        Settings = Settings with { Left = Overlay.Left, Top = Overlay.Top };
         if (Settings.Enabled && Settings.OverlayVisible) { if (!Overlay.IsVisible) Overlay.Show(); }
         else Overlay.Hide();
         if (Latest is { } sample) Overlay.UpdateSnapshot(sample, PerformanceMath.SelectGpu(sample.Adapters, Settings.GpuKey));

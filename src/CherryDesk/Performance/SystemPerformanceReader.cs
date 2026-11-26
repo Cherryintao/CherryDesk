@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using Microsoft.Win32;
 
 namespace CherryDesk.Performance;
 
@@ -12,6 +13,8 @@ internal sealed class SystemPerformanceReader : IPerformanceReader
     private PdhGpuReader? gpu;
     private string? gpuError;
     private DateTimeOffset lastInitialization = DateTimeOffset.MinValue;
+    private readonly HardwareTemperatureReader temperatures = new();
+    private readonly string? cpuName = ReadCpuName();
 
     public PerformanceSnapshot Read()
     {
@@ -57,10 +60,21 @@ internal sealed class SystemPerformanceReader : IPerformanceReader
                 gpu = null;
             }
         }
-        return new(now, cpu, memoryUsed, memoryTotal, adapters, usage, cpuError, memoryError, gpuError);
+        temperatures.Update(adapters, now);
+        return new(now, cpu, memoryUsed, memoryTotal, adapters, usage, cpuError, memoryError, gpuError)
+        {
+            CpuName = cpuName, CpuTemperature = temperatures.Cpu,
+            CpuTemperatureSource = temperatures.CpuSource, GpuTemperatures = temperatures.Gpus
+        };
     }
 
     public void Dispose() => gpu?.Dispose();
+
+    private static string? ReadCpuName()
+    {
+        try { return (Registry.GetValue(@"HKEY_LOCAL_MACHINE\HARDWARE\DESCRIPTION\System\CentralProcessor\0", "ProcessorNameString", null) as string)?.Trim(); }
+        catch { return null; }
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct MemoryStatus

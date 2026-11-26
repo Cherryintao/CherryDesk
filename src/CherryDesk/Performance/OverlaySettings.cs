@@ -4,6 +4,8 @@ using System.Text.Json;
 
 namespace CherryDesk.Performance;
 
+public enum OverlayLayout { Compact, Full }
+
 public sealed record OverlaySettings
 {
     public bool Enabled { get; init; } = false;
@@ -13,13 +15,15 @@ public sealed record OverlaySettings
     public double Left { get; init; } = 24;
     public double Top { get; init; } = 24;
     public string GpuKey { get; init; } = "";
+    public OverlayLayout Layout { get; init; } = OverlayLayout.Compact;
 
     public OverlaySettings Normalize() => this with
     {
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0.35, 1) : 0.9,
         Left = double.IsFinite(Left) ? Left : 24,
         Top = double.IsFinite(Top) ? Top : 24,
-        GpuKey = GpuKey ?? ""
+        GpuKey = GpuKey ?? "",
+        Layout = Enum.IsDefined(Layout) ? Layout : OverlayLayout.Compact
     };
 }
 

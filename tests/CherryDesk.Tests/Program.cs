@@ -118,6 +118,34 @@ var tests = new (string Name, Action Run)[]
         Assert(PerformanceMath.SelectGpu(adapters, "previous-computer")?.Id == "b");
         Assert(PerformanceMath.SelectGpu(Array.Empty<GpuAdapter>(), "") is null);
     }),
+    ("Temperatures convert driver units and reject absent or invalid values", () =>
+    {
+        Assert(TemperatureValues.FromGpuTenths(675) == 67.5);
+        Assert(TemperatureValues.FromGpuTenths(0) is null);
+        Assert(TemperatureValues.FromGpuTenths(uint.MaxValue) is null);
+        Assert(TemperatureValues.Valid(double.NaN) is null && TemperatureValues.Valid(double.PositiveInfinity) is null);
+        Assert(TemperatureValues.Valid(-1) is null && TemperatureValues.Valid(151) is null);
+        Assert(TemperatureValues.Text(null) == "--" && TemperatureValues.Text(63) == "63°C");
+    }),
+    ("CPU package temperature takes priority over individual cores", () =>
+    {
+        Assert(TemperatureValues.SelectCpu([new("CPU Core #1", 80), new("CPU Package", 65)]) == 65);
+        Assert(TemperatureValues.SelectCpu([new("CPU Core #1", 60), new("CPU Core #2", 70)]) == 70);
+        Assert(TemperatureValues.SelectCpu([new("CPU (Tctl/Tdie)", 76), new("Core", 81)]) == 76);
+        Assert(TemperatureValues.SelectCpu([new("CPU Package", 0)]) is null);
+        Assert(TemperatureValues.SelectCpu(Array.Empty<CpuTemperatureSensor>()) is null);
+    }),
+    ("GPU temperature buffer matches the Windows x64 ABI", () =>
+    {
+        Assert(System.Runtime.InteropServices.Marshal.SizeOf<HardwareTemperatureReader.AdapterPerformance>() == 64);
+        Assert(System.Runtime.InteropServices.Marshal.OffsetOf<HardwareTemperatureReader.AdapterPerformance>("Temperature").ToInt32() == 56);
+    }),
+    ("Overlay defaults to compact and rejects unknown saved modes", () =>
+    {
+        Assert(new OverlaySettings().Layout == OverlayLayout.Compact);
+        Assert((new OverlaySettings { Layout = (OverlayLayout)999 }).Normalize().Layout == OverlayLayout.Compact);
+        Assert((new OverlaySettings { Layout = OverlayLayout.Full }).Normalize().Layout == OverlayLayout.Full);
+    }),
     ("Overlay settings reject nonfinite coordinates and unsafe opacity", () =>
     {
         var settings = new OverlaySettings { Left = double.NaN, Top = double.PositiveInfinity, Opacity = 0 }.Normalize();
@@ -304,6 +332,28 @@ var tests = new (string Name, Action Run)[]
                 app = new System.Windows.Application { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
                 app.Resources.MergedDictionaries.Add(new System.Windows.ResourceDictionary { Source = new Uri("pack://application:,,,/CherryDesk;component/Theme.xaml") });
                 using var overlay = new OverlayController(true);
+                var firstGpu = new GpuAdapter("a", "a", "First GPU", 100);
+                var secondGpu = new GpuAdapter("b", "b", "Second GPU", 200);
+                var snapshot = new PerformanceSnapshot(DateTimeOffset.Now, 20, 40, 100, [firstGpu, secondGpu],
+                    new Dictionary<string, double> { ["a"] = 10, ["b"] = 90 }, null, null, null)
+                {
+                    CpuName = "Test CPU", CpuTemperature = 61,
+                    GpuTemperatures = new Dictionary<string, double> { ["a"] = 45, ["b"] = 72 }
+                };
+                overlay.Overlay.UpdateSnapshot(snapshot, firstGpu);
+                Assert(overlay.Overlay.Width == 160 && overlay.Overlay.Height == 74);
+                Assert(overlay.Overlay.CompactGpuTemperature.Text == "45°C" && overlay.Overlay.CompactCpuTemperature.Text == "61°C");
+                Assert(overlay.Overlay.FullPanel.Visibility == System.Windows.Visibility.Collapsed);
+                overlay.Overlay.UpdateSnapshot(snapshot, secondGpu);
+                Assert(overlay.Overlay.CompactGpuTemperature.Text == "72°C");
+                overlay.SetLayout(OverlayLayout.Full);
+                Assert(overlay.Overlay.Width == 360 && overlay.Overlay.FullPanel.Visibility == System.Windows.Visibility.Visible);
+                Assert(overlay.Overlay.CpuName.Text.Contains("Test CPU") && overlay.Overlay.GpuName.Text.Contains("Second GPU"));
+                overlay.SetLayout(OverlayLayout.Compact);
+                overlay.Overlay.UpdateSnapshot(snapshot with { CpuTemperature = null, GpuTemperatures = new Dictionary<string, double> { ["a"] = 45 } }, secondGpu);
+                Assert(overlay.Overlay.Width == 108 && overlay.Overlay.CompactGpuTemperature.Text == "");
+                overlay.Overlay.ClearSnapshot();
+                Assert(overlay.Overlay.CompactCpu.Text == "--" && overlay.Overlay.CompactCpuTemperature.Text == "");
                 using var battery = new BatteryController(new BatteryProbe(), transient: true);
                 var backend = new SelectionBackend();
                 window = new CherryDesk.MainWindow(new AudioSwitcher(backend), overlay, battery);
@@ -350,7 +400,7 @@ var tests = new (string Name, Action Run)[]
             var store = new OverlaySettingsStore(path);
             Assert(store.Load() == new OverlaySettings());
             Assert(!store.Load().Enabled);
-            var settings = new OverlaySettings { Enabled = false, OverlayVisible = false, Locked = false, Left = -300, Top = 80, Opacity = 0.65, GpuKey = "amd" };
+            var settings = new OverlaySettings { Enabled = false, OverlayVisible = false, Locked = false, Left = -300, Top = 80, Opacity = 0.65, GpuKey = "amd", Layout = OverlayLayout.Full };
             store.Save(settings);
             Assert(store.Load() == settings);
             store.Save(settings with { Enabled = true });

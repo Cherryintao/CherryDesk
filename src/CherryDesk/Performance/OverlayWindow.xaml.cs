@@ -15,6 +15,8 @@ public partial class OverlayWindow : Window
     private const int VisibilityHotkey = 70, LockHotkey = 71;
     private IntPtr handle;
     private bool locked = true, visibilityHotkeyRegistered, lockHotkeyRegistered;
+    private OverlayLayout layout = OverlayLayout.Compact;
+    private bool hasTemperature;
     internal bool AllowClose { get; set; }
     internal string? HotkeyWarning { get; private set; }
     internal event Action? ToggleVisibilityRequested;
@@ -45,6 +47,11 @@ public partial class OverlayWindow : Window
     internal void ApplySettings(OverlaySettings settings)
     {
         locked = settings.Locked;
+        layout = settings.Layout;
+        CompactPanel.Visibility = layout == OverlayLayout.Compact ? Visibility.Visible : Visibility.Collapsed;
+        FullPanel.Visibility = layout == OverlayLayout.Full ? Visibility.Visible : Visibility.Collapsed;
+        Panel.Padding = layout == OverlayLayout.Compact ? new Thickness(8, 6, 8, 6) : new Thickness(16, 12, 16, 12);
+        UpdateDimensions();
         Opacity = settings.Opacity;
         ModeText.Text = locked ? "已锁定 · 鼠标穿透" : "已解锁 · 拖动调整位置";
         Panel.Cursor = locked ? Cursors.Arrow : Cursors.SizeAll;
@@ -86,6 +93,34 @@ public partial class OverlayWindow : Window
             : "物理内存暂不可用";
         GpuName.Text = adapter?.DisplayName ?? "未识别到硬件显卡";
         GpuName.ToolTip = snapshot.GpuError ?? adapter?.Name;
+        CpuName.Text = "CPU · " + (snapshot.CpuName ?? "未识别到处理器型号");
+        CpuName.ToolTip = snapshot.CpuName;
+        var cpuTemperature = snapshot.CpuTemperature is { } cpu ? TemperatureValues.Valid(cpu) : null;
+        double? gpuTemperature = adapter is not null && snapshot.GpuTemperatures.TryGetValue(adapter.Id, out var temperature)
+            ? TemperatureValues.Valid(temperature) : null;
+        CpuTemperatureText.Text = TemperatureValues.Text(cpuTemperature);
+        GpuTemperatureText.Text = TemperatureValues.Text(gpuTemperature);
+        CompactCpu.Text = CpuText.Text;
+        CompactGpu.Text = GpuText.Text;
+        CompactMemory.Text = MemoryText.Text;
+        CompactCpuTemperature.Text = cpuTemperature.HasValue ? CpuTemperatureText.Text : "";
+        CompactGpuTemperature.Text = gpuTemperature.HasValue ? GpuTemperatureText.Text : "";
+        hasTemperature = cpuTemperature.HasValue || gpuTemperature.HasValue;
+        CompactTemperatureColumn.Width = new GridLength(hasTemperature ? 52 : 0);
+        UpdateDimensions();
+    }
+
+    internal void ClearSnapshot() => UpdateSnapshot(new PerformanceSnapshot(DateTimeOffset.Now, null, null, null,
+        Array.Empty<GpuAdapter>(), new System.Collections.Generic.Dictionary<string, double>(), null, null, null), null);
+
+    private void UpdateDimensions()
+    {
+        var width = layout == OverlayLayout.Full ? 360 : hasTemperature ? 160 : 108;
+        var height = layout == OverlayLayout.Full ? 244 : 74;
+        if (Width == width && Height == height) return;
+        Width = width;
+        Height = height;
+        if (handle != IntPtr.Zero) MoveToVisiblePosition(Left, Top);
     }
 
     private static void SetMetric(System.Windows.Controls.TextBlock text, System.Windows.Controls.ProgressBar bar, double? value)

@@ -191,12 +191,16 @@ public partial class MainWindow : Window
             MonitoringIndicator.Fill = new SolidColorBrush(settings.Enabled ? Color.FromRgb(0, 120, 212) : Color.FromRgb(97, 97, 97));
             ShowOverlay.IsChecked = settings.OverlayVisible;
             LockOverlay.IsChecked = settings.Locked;
+            OverlayLayoutChoice.SelectedValue = settings.Layout.ToString();
             OverlayOpacity.Value = settings.Opacity * 100;
             OpacityValue.Text = $"{settings.Opacity:P0}";
             LiveCpu.Text = performance.Latest is null ? "--" : performance.Overlay.CpuText.Text;
             LiveGpu.Text = performance.Latest is null ? "--" : performance.Overlay.GpuText.Text;
             LiveMemory.Text = performance.Latest is null ? "--" : performance.Overlay.MemoryText.Text;
             LiveMemoryDetail.Text = performance.Latest is null ? "正在采样…" : performance.Overlay.MemoryDetail.Text;
+            LiveCpuTemperature.Text = "温度 " + (performance.Latest is null ? "--" : performance.Overlay.CpuTemperatureText.Text);
+            LiveGpuTemperature.Text = "温度 " + (performance.Latest is null ? "--" : performance.Overlay.GpuTemperatureText.Text);
+            LiveCpuName.Text = performance.Latest is null ? "" : performance.Overlay.CpuName.Text;
             var choices = new[] { new GpuChoice("", "自动选择（优先独立显卡）") }
                 .Concat(performance.Latest?.Adapters.Select(adapter => new GpuChoice(adapter.Key, adapter.DisplayName))
                     ?? Enumerable.Empty<GpuChoice>()).ToArray();
@@ -230,6 +234,11 @@ public partial class MainWindow : Window
     private void GpuSelectionChanged(object sender, SelectionChangedEventArgs e)
     { if (initialized && !syncingPerformance && GpuDevices.SelectedItem is GpuChoice choice) performance.SelectGpu(choice.Key); }
     private void ResetOverlayPosition(object sender, RoutedEventArgs e) => performance.ResetPosition();
+    private void OverlayLayoutChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (initialized && !syncingPerformance && OverlayLayoutChoice.SelectedValue is string value
+            && Enum.TryParse<OverlayLayout>(value, out var layout)) performance.SetLayout(layout);
+    }
     private async void MonitoringEnabledChanged(object sender, RoutedEventArgs e)
     {
         if (initialized && !syncingPerformance) await performance.SetEnabledAsync(MonitoringEnabled.IsChecked == true);
